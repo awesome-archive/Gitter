@@ -1,10 +1,13 @@
 import Taro, { Component } from '@tarojs/taro'
-import { View, Picker, Text } from '@tarojs/components'
+import { View, Picker, Text, Swiper, SwiperItem, ScrollView } from '@tarojs/components'
 import { GLOBAL_CONFIG } from '../../constants/globalConfig'
-import { AtTabs, AtTabsPane, AtSearchBar } from 'taro-ui'
 import { languages } from '../../utils/language'
+import { get as getGlobalData, set as setGlobalData } from '../../utils/global_data'
+import { AtNoticebar } from 'taro-ui'
 
 import ItemList from '../../components/index/itemList'
+import Segment from '../../components/index/segment'
+import Empty from '../../components/index/empty'
 
 import './index.less'
 
@@ -15,7 +18,7 @@ class Index extends Component {
     enablePullDownRefresh: true
   }
 
-  constructor (props) {
+  constructor(props) {
     super(props)
     this.state = {
       current: 0,
@@ -28,51 +31,97 @@ class Index extends Component {
         'urlParam': ''
       },
       animation: null,
-      scrollTop: null,
-      scrollHeight: 0,
       isHidden: false,
+      fixed: false,
+      notice: null,
+      notice_closed: false,
       repos: [],
       developers: [],
       range: [
-        [{'name': 'Today',
-        'value': 'daily'},
-        {'name': 'Week',
-          'value': 'weekly'},
-        {'name': 'Month',
-          'value': 'monthly'}],
+        [{
+          'name': 'Today',
+          'value': 'daily'
+        },
+        {
+          'name': 'Week',
+          'value': 'weekly'
+        },
+        {
+          'name': 'Month',
+          'value': 'monthly'
+        }],
         languages
       ]
     }
   }
 
-  componentWillReceiveProps (nextProps) {
+  componentWillReceiveProps(nextProps) {
     console.log(this.props, nextProps)
   }
 
   componentDidMount() {
-    Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
+    this.interstitialAd = null
+    Taro.showLoading({ title: GLOBAL_CONFIG.LOADING_TEXT })
+    this.loadLanguages()
     this.loadItemList()
+    this.loadNotice()
+    this.loadinterstitialAd()
+
+    let that = this
+    Taro.getSystemInfo({
+      success(res) {
+        that.setState({
+          windowHeight: res.windowHeight - (res.windowWidth / 750) * 80
+        })
+      }
+    })
   }
 
-  componentWillUnmount () { }
+  componentWillUnmount() { }
 
-  componentDidShow () { }
+  componentDidShow() {
+    this.updateLanguages()
+    // 在适合的场景显示插屏广告
+    if (this.interstitialAd) {
+      this.interstitialAd.show().catch((err) => {
+        console.error(err)
+      })
+    }
+  }
 
-  componentDidHide () { }
+  componentDidHide() { }
 
   onPullDownRefresh() {
     this.loadItemList()
   }
 
-  onPageScroll(e) {
-    if (e.scrollTop <= 0) {
-      // 滚动到最顶部
-      e.scrollTop = 0;
-    } else if (e.scrollTop > this.state.scrollHeight) {
-      // 滚动到最底部
-      e.scrollTop = this.state.scrollHeight;
+  onPageScroll(obj) {
+    const { fixed } = this.state
+    if (obj.scrollTop > 0) {
+      if (!fixed) {
+        this.setState({
+          fixed: true
+        })
+      }
+    } else {
+      this.setState({
+        fixed: false
+      })
     }
-    if (e.scrollTop > this.state.scrollTop || e.scrollTop >= this.state.scrollHeight) {
+  }
+
+  onScroll(e) {
+    if (e.detail.scrollTop < 0) return;
+    if (e.detail.deltaY > 0) {
+      let animation = Taro.createAnimation({
+        duration: 400,
+        timingFunction: 'ease',
+      }).bottom(25).step().export()
+      this.setState({
+        isHidden: false,
+        animation: animation
+      })
+    } else {
       //向下滚动
       if (!this.state.isHidden) {
         let animation = Taro.createAnimation({
@@ -84,41 +133,7 @@ class Index extends Component {
           animation: animation
         })
       }
-    } else {
-      //向上滚动
-      if (this.state.isHidden) {
-        let animation = Taro.createAnimation({
-          duration: 400,
-          timingFunction: 'ease',
-        }).bottom(25).step().export()
-        this.setState({
-          isHidden: false,
-          animation: animation
-        })
-      }
     }
-    //给scrollTop重新赋值
-    this.setState({
-      scrollTop: e.scrollTop
-    })
-  }
-
-  getScrollHeight() {
-    let that = this
-    Taro.createSelectorQuery().select('#list').boundingClientRect((rect)=>{
-      that.setState({
-        scrollHeight: rect.height - 456
-      })
-    }).exec()
-  }
-
-  handleClick (value) {
-    let that = this
-    this.setState({
-      current: value
-    }, ()=>{
-      that.getScrollHeight()
-    })
   }
 
   onChange = e => {
@@ -126,12 +141,12 @@ class Index extends Component {
       category: this.state.range[0][e.detail.value[0]],
       language: this.state.range[1][e.detail.value[1]]
     }, () => {
-      Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
+      Taro.showLoading({ title: GLOBAL_CONFIG.LOADING_TEXT })
       this.loadItemList()
     })
   }
 
-  loadItemList () {
+  loadItemList() {
     const { current } = this.state
     let that = this
     wx.cloud.callFunction({
@@ -146,9 +161,11 @@ class Index extends Component {
     }).then(res => {
       that.setState({
         repos: res.result.data
-      }, ()=>{
+      }, () => {
+        Taro.pageScrollTo({
+          scrollTop: 0
+        })
         if (current === 0) {
-          that.getScrollHeight()
           Taro.hideLoading()
           Taro.stopPullDownRefresh()
         }
@@ -170,10 +187,12 @@ class Index extends Component {
     }).then(res => {
       that.setState({
         developers: res.result.data
-      }, ()=>{
+      }, () => {
+        Taro.pageScrollTo({
+          scrollTop: 0
+        })
         if (current === 1) {
           Taro.stopPullDownRefresh()
-          that.getScrollHeight()
           Taro.hideLoading()
         }
       })
@@ -183,13 +202,139 @@ class Index extends Component {
     })
   }
 
-  onActionSearch () {
-    Taro.navigateTo({
-      url: '/pages/search/index'
+  loadLanguages() {
+    let that = this
+    const db = wx.cloud.database()
+    let openid = getGlobalData('openid')
+    if (!openid) {
+      openid = Taro.getStorageSync('openid')
+    }
+    db.collection('languages')
+      .where({
+        _openid: openid, // 当前用户 openid
+      })
+      .get()
+      .then(res => {
+        console.log(res)
+        if (res.data.length > 0) {
+          setGlobalData('favoriteLanguages', res.data[0].languages)
+          that.updateLanguages()
+        }
+      })
+      .catch(err => {
+        console.error(err)
+      })
+  }
+
+  loadNotice() {
+    let that = this
+    const db = wx.cloud.database()
+    db.collection('notices')
+      .get()
+      .then(res => {
+        console.log('notices', res)
+        if (res.data.length > 0) {
+          const key = 'notice_key_' + res.data[0].notice_id
+          const notice_closed = Taro.getStorageSync(key)
+          that.setState({
+            notice: res.data[0],
+            notice_closed: notice_closed
+          })
+        }
+      })
+      .catch(err => {
+        console.error(err)
+      })
+  }
+
+  loadinterstitialAd() {
+    // 在页面onLoad回调事件中创建插屏广告实例
+    if (wx.createInterstitialAd) {
+      this.interstitialAd = wx.createInterstitialAd({
+        adUnitId: 'adunit-fe997b16f427f91f'
+      })
+      this.interstitialAd.onLoad(() => {
+        console.log('onLoad event emit')
+      })
+      this.interstitialAd.onError((err) => {
+        console.log('onError event emit', err)
+      })
+      this.interstitialAd.onClose((res) => {
+        this.interstitialAd = null
+        console.log('onClose event emit', res)
+      })
+    }
+  }
+
+  updateLanguages() {
+    let favoriteLanguages = getGlobalData('favoriteLanguages')
+    if (favoriteLanguages && favoriteLanguages.length > 0) {
+      let language = favoriteLanguages[0]
+      if (language.name !== 'All') {
+        favoriteLanguages.unshift({
+          "urlParam": "",
+          "name": "All"
+        })
+      }
+      this.setState({
+        range: [
+          [{
+            'name': 'Today',
+            'value': 'daily'
+          },
+          {
+            'name': 'Week',
+            'value': 'weekly'
+          },
+          {
+            'name': 'Month',
+            'value': 'monthly'
+          }],
+          favoriteLanguages
+        ]
+      })
+    } else {
+      this.setState({
+        range: [
+          [{
+            'name': 'Today',
+            'value': 'daily'
+          },
+          {
+            'name': 'Week',
+            'value': 'weekly'
+          },
+          {
+            'name': 'Month',
+            'value': 'monthly'
+          }],
+          languages
+        ]
+      })
+    }
+  }
+
+  onTabChange(index) {
+    this.setState({
+      current: index
     })
   }
 
-  render () {
+  onShareAppMessage(obj) {
+    return {
+      title: 'Github 今日热榜，随时随地发现您喜欢的开源项目',
+      path: '/pages/index/index',
+      imageUrl: 'http://img.huangjianke.com/cover.png'
+    }
+  }
+
+  onCloseNotice() {
+    const { notice } = this.state
+    const key = 'notice_key_' + notice.notice_id
+    Taro.setStorageSync(key, true)
+  }
+
+  render() {
     let categoryType = 0
     let categoryValue = this.state.category.value
     if (categoryValue === 'weekly') {
@@ -197,40 +342,42 @@ class Index extends Component {
     } else if (categoryValue === 'monthly') {
       categoryType = 2
     }
-    const { developers, repos } = this.state
+    const { developers, repos, current, notice, fixed, notice_closed } = this.state
     return (
-      <View className='content' id='list'>
-        <View className='search_bg' onClick={this.onActionSearch.bind(this)}>
-          <AtSearchBar
-            disabled={true}
-            placeholder='Search'
-            actionName=''
+      <View className='content'>
+        <View className={fixed ? 'segment-fixed' : ''}>
+          <Segment tabList={['REPO', 'USER']}
+            current={current}
+            onTabChange={this.onTabChange}
           />
         </View>
-        <AtTabs
-          swipeable={false}
-          animated={true}
-          current={this.state.current}
-          tabList={[
-            { title: 'Repositories' },
-            { title: 'Developers' }
-          ]}
-          onClick={this.handleClick.bind(this)} >
-          <AtTabsPane current={this.state.current} index={0}>
-            <ItemList itemList={repos} type={0} categoryType={categoryType} />
-          </AtTabsPane>
-          <AtTabsPane current={this.state.current} index={1}>
-            <ItemList itemList={developers} type={1} categoryType={categoryType} />
-          </AtTabsPane>
-
-        </AtTabs>
+        {
+          fixed &&
+          <View className='segment-placeholder' />
+        }
+        {
+          (notice.status && !notice_closed) &&
+          <AtNoticebar icon='volume-plus'
+            close
+            onClose={this.onCloseNotice.bind(this)}>
+            {notice.content}
+          </AtNoticebar>
+        }
+        {
+          current === 0 &&
+          (repos.length > 0 ? <ItemList itemList={repos} type={0} categoryType={categoryType} /> : <Empty />)
+        }
+        {
+          current === 1 &&
+          (developers.length > 0 ? <ItemList itemList={developers} type={1} categoryType={categoryType} /> : <Empty />)
+        }
         {
           this.state.range[1].length > 0 &&
           <View>
             <Picker mode='multiSelector'
-                    range={this.state.range}
-                    rangeKey={'name'}
-                    onChange={this.onChange}
+              range={this.state.range}
+              rangeKey={'name'}
+              onChange={this.onChange}
             >
               <View className='filter' animation={this.state.animation}>
                 <Text className='category'>{this.state.category.name}</Text>

@@ -1,6 +1,7 @@
 import '@tarojs/async-await'
 import Taro, { Component } from '@tarojs/taro'
 import { Provider } from '@tarojs/redux'
+import { get as getGlobalData, set as setGlobalData } from './utils/global_data'
 
 import Index from './pages/index'
 
@@ -22,9 +23,13 @@ class App extends Component {
   config = {
     pages: [
       'pages/index/index',
+      'pages/index/favoriteLanguages',
       'pages/account/index',
+      'pages/git/git',
+      'pages/git/tutorials',
       'pages/activity/index',
       'pages/search/index',
+      'pages/search/searchResult',
       'pages/account/follow',
       'pages/account/about',
       'pages/account/developerInfo',
@@ -38,6 +43,7 @@ class App extends Component {
       'pages/repo/contributors',
       'pages/repo/starredRepo',
       'pages/repo/file',
+      'pages/repo/repoEvents',
       'pages/login/login'
     ],
     window: {
@@ -57,7 +63,14 @@ class App extends Component {
         text: 'Activity',
         iconPath: './assets/images/tab_news.png',
         selectedIconPath: './assets/images/tab_news_s.png'
-      }, {
+      }, 
+      // {
+      //   pagePath: 'pages/git/git',
+      //   text: 'Git',
+      //   iconPath: './assets/images/tab_git.png',
+      //   selectedIconPath: './assets/images/tab_git_s.png'
+      // }, 
+      {
         pagePath: 'pages/account/index',
         text: 'Me',
         iconPath: './assets/images/tab_me.png',
@@ -67,24 +80,64 @@ class App extends Component {
       selectedColor: '#2d8cf0',
       backgroundColor: '#ffffff',
       borderStyle: 'white'
-    }
+    },
+    navigateToMiniProgramAppIdList: [
+      'wx8abaf00ee8c3202e'
+    ]
   }
 
-  componentDidMount () {
+  componentDidMount() {
     this.updateApp()
     wx.cloud.init({
-      env: 'gitter-33fa2c',
+      env: 'gitter-prod-pkqn3',
       traceUser: true
+    })
+    this.loadOpenId()
+    this.loadConfig()
+  }
+
+  componentDidShow() { }
+
+  componentDidHide() { }
+
+  componentCatchError() { }
+
+  componentDidCatchError() { }
+
+  loadOpenId() {
+    wx.cloud.callFunction({
+      // 要调用的云函数名称
+      name: 'openid',
+    }).then(res => {
+      const openid = res.result.openid
+      setGlobalData('openid', openid || null)
+      if (openid) {
+        Taro.setStorageSync('openid', openid)
+      }
+    }).catch(err => {
+      console.log('openid err', err)
     })
   }
 
-  componentDidShow () {}
-
-  componentDidHide () {}
-
-  componentCatchError () {}
-
-  componentDidCatchError () {}
+  loadConfig() {
+    let that = this
+    const db = wx.cloud.database()
+    db.collection('config')
+      .where({})
+      .get()
+      .then(res => {
+        console.log(res)
+        if (res.data.length > 0) {
+          Taro.setStorage({
+            key: 'config_gitter',
+            data: res.data[0]
+          })
+        }
+      })
+      .catch(err => {
+        console.error(err)
+      })
+  }
 
   /*更新小程序*/
   updateApp() {
@@ -113,7 +166,7 @@ class App extends Component {
 
   // 在 App 类中的 render() 函数没有实际作用
   // 请勿修改此函数
-  render () {
+  render() {
     return (
       <Provider store={store}>
         <Index />

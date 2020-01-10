@@ -1,9 +1,7 @@
 import Taro, { Component } from '@tarojs/taro'
 import PropTypes from 'prop-types'
 import { View, Text } from '@tarojs/components'
-import api from '../../service/api'
 import { AtActivityIndicator } from 'taro-ui'
-import { HTTP_STATUS } from '../../constants/status'
 
 import './markdown.less'
 
@@ -14,12 +12,16 @@ const render = new Towxml()
 export default class Markdown extends Component {
   static propTypes = {
     md: PropTypes.string,
-    base: PropTypes.string
+    base: PropTypes.string,
+    cache: PropTypes.bool,
+    cacheKey: PropTypes.string
   }
 
   static defaultProps = {
     md: null,
-    base: null
+    base: null,
+    cache: false,
+    cacheKey: null
   }
 
   constructor(props) {
@@ -31,12 +33,34 @@ export default class Markdown extends Component {
   }
 
   componentDidMount() {
-    this.parseReadme()
+    const { cache, cacheKey } = this.props
+    if (cache) {
+      let that = this
+      Taro.getStorage({
+        key: cacheKey,
+        complete(res) {
+          console.log('markdown complete', res)
+          if (res.data) {
+            that.setState({
+              fail: false,
+              data: res.data
+            })
+          } else {
+            that.parseReadme()
+          }
+        }
+      })
+    } else {
+      this.parseReadme()
+    }
   }
 
   parseReadme() {
-    const { md, base } = this.props
+    const { md, base, cache, cacheKey } = this.props
     let that = this
+    that.setState({
+      fail: false
+    })
     wx.cloud.callFunction({
       // 要调用的云函数名称
       name: 'parse',
@@ -55,35 +79,18 @@ export default class Markdown extends Component {
         fail: false,
         data: data
       })
+      if (cache) {
+        Taro.setStorage({
+          key: cacheKey,
+          data: data
+        })
+      }
     }).catch(err => {
       console.log('cloud', err)
       that.setState({
         fail: true
       })
     })
-    // let url = 'https://gitter-weapp.herokuapp.com/parse'
-    // let that = this
-    // let params = {
-    //   type: 'markdown',
-    //   content: md
-    // }
-    // api.post(url, params).then((res)=>{
-    //   if (res.statusCode === HTTP_STATUS.SUCCESS) {
-    //     let data = res.data
-    //     if (base && base.length > 0) {
-    //       data = render.initData(res.data, {base: base, app: this.$scope})
-    //     }
-    //     console.log(data)
-    //     that.setState({
-    //       fail: false,
-    //       data: data
-    //     })
-    //   } else {
-    //     that.setState({
-    //       fail: true
-    //     })
-    //   }
-    // })
   }
 
   onTap (e) {

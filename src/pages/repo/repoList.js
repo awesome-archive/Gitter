@@ -3,6 +3,9 @@ import { View } from '@tarojs/components'
 import { GLOBAL_CONFIG } from '../../constants/globalConfig'
 
 import RepoItem from '../../components/account/repoItem'
+import Empty from '../../components/index/empty'
+import LoadMore from '../../components/common/loadMore'
+import { REFRESH_STATUS } from '../../constants/status'
 
 import './repoList.less'
 import api from "../../service/api";
@@ -19,7 +22,8 @@ class RepoList extends Component {
     this.state = {
       url: '',
       page: 1,
-      repos: []
+      repos: [],
+      refresh_status: REFRESH_STATUS.NORMAL
     }
   }
 
@@ -48,21 +52,31 @@ class RepoList extends Component {
 
   onReachBottom() {
     let that = this
-    Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
-    const { page } = this.state
-    this.setState({
-      page: page + 1
-    }, ()=>{
-      that.getRepoList()
-    })
+    const { page, refresh_status } = this.state
+    if (refresh_status !== REFRESH_STATUS.NO_MORE_DATA) {
+      this.setState({
+        page: page + 1
+      }, ()=>{
+        that.getRepoList()
+      })
+    }
   }
 
   getRepoList() {
     let that = this
     const { url, page, repos } = this.state
+
+    if (page !== 1) {
+      that.setState({
+        refresh_status: REFRESH_STATUS.REFRESHING
+      })
+    }
+
     let params = {
       page: page,
-      per_page: GLOBAL_CONFIG.PER_PAGE
+      per_page: GLOBAL_CONFIG.PER_PAGE,
+      type: 'owner',
+      sort: 'updated'
     }
     api.get(url, params).then((res)=>{
       if (page === 1) {
@@ -71,16 +85,22 @@ class RepoList extends Component {
         })
       } else {
         that.setState({
-          repos: repos.concat(res.data)
+          repos: repos.concat(res.data),
         })
       }
+
+      let status = res.data.length < GLOBAL_CONFIG.PER_PAGE ? REFRESH_STATUS.NO_MORE_DATA : REFRESH_STATUS.NORMAL
+      that.setState({
+        refresh_status: status
+      })
+
       Taro.stopPullDownRefresh()
       Taro.hideLoading()
     })
   }
 
   handleClickedItem(item) {
-    let url = '/pages/repo/repo?url=' + decodeURI(item.url)
+    let url = '/pages/repo/repo?url=' + encodeURI(item.url)
     Taro.navigateTo({
       url: url
     })
@@ -93,7 +113,7 @@ class RepoList extends Component {
   componentDidHide () { }
 
   render () {
-    const { repos } = this.state
+    const { repos, refresh_status } = this.state
     const repoList = repos.map((item, index) => {
       return (
         <View onClick={this.handleClickedItem.bind(this, item)} key={index}>
@@ -103,7 +123,8 @@ class RepoList extends Component {
     })
     return (
       <View className='content'>
-        {repoList}
+        {repos.length > 0 ? repoList : <Empty />}
+        <LoadMore status={refresh_status} />
       </View>
     )
   }

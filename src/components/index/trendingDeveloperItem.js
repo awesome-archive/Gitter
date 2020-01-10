@@ -15,6 +15,17 @@ export default class TrendingDeveloperItem extends Component {
     item: null,
   }
 
+  onClickRepo(e) {
+    e.stopPropagation()
+    const { item } = this.props
+    console.log('item',item)
+    let api = 'https://api.github.com/repos/' + item.username + '/' + item.repo.name
+    let url = '/pages/repo/repo?url=' + encodeURI(api)
+    Taro.navigateTo({
+      url: url
+    })
+  }
+
   render() {
     const { item } = this.props
     if (!item) return <View />
@@ -22,12 +33,12 @@ export default class TrendingDeveloperItem extends Component {
       <View className='content'>
         <AtAvatar circle size='large' image={item.avatar} />
         <View className='user_info'>
-          <View className='user_name'>{item.username}</View>
+          <Text className='user_name'>{item.username}</Text>
           <View className='repo'>
             <AtIcon prefixClass='ion' value='md-bookmarks' size='18' color='#333' />
-            <View className='repo_title'>{item.repo.name}</View>
+            <Text className='repo_title' onClick={this.onClickRepo.bind(this)} hoverStopPropagation>{item.repo.name}</Text>
           </View>
-          <View className='repo_desc'>{item.repo.description}</View>
+          <Text className='repo_desc'>{item.repo.description}</Text>
         </View>
       </View>
     )

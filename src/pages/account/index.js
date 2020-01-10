@@ -9,6 +9,7 @@ import userAction from '../../actions/user'
 import { hasLogin } from '../../utils/common'
 
 import './index.less'
+import api from "../../service/api";
 
 class Index extends Component {
 
@@ -22,7 +23,8 @@ class Index extends Component {
   constructor(props) {
     super(props)
     this.state = {
-      isLogin: false
+      isLogin: false,
+      hasStar: true
     }
   }
 
@@ -56,6 +58,7 @@ class Index extends Component {
       userAction.getUserInfo().then(()=>{
         Taro.hideLoading()
         Taro.stopPullDownRefresh()
+        this.checkStarring()
       })
     } else {
       Taro.hideLoading()
@@ -63,8 +66,19 @@ class Index extends Component {
     }
   }
 
+  checkStarring() {
+    if (hasLogin()) {
+      let that = this
+      let url = '/user/starred/huangjianke/Gitter'
+      api.get(url).then((res)=>{
+        that.setState({
+          hasStar: res.statusCode === 204
+        })
+      })
+    }
+  }
+
   handleNavigate(type) {
-    const { userInfo } = this.props
     switch (type) {
       case NAVIGATE_TYPE.REPOS: {
         let url = encodeURI(baseUrl + '/user/repos')
@@ -96,13 +110,27 @@ class Index extends Component {
           url: '/pages/repo/issues?url=/user/issues'
         })
       }
-        break
+      break
       case NAVIGATE_TYPE.ABOUT: {
         Taro.navigateTo({
           url: '/pages/account/about'
         })
       }
-        break
+      break
+      case NAVIGATE_TYPE.STAR: {
+        this.handleStar()
+      }
+      break
+      case NAVIGATE_TYPE.FEEDBACK: {
+        Taro.navigateToMiniProgram({
+          appId: 'wx8abaf00ee8c3202e',
+          extraData: {
+            id: '55362',
+            customData: {}
+          }
+        })
+      }
+      break
       default: {
       }
     }
@@ -114,9 +142,32 @@ class Index extends Component {
     })
   }
 
+  handleStar() {
+    Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
+    let url = '/user/starred/huangjianke/Gitter'
+    api.put(url).then((res)=>{
+      Taro.hideLoading()
+      if (res.statusCode === 204) {
+        Taro.showToast({
+          title: 'Thank you!',
+          icon: 'success'
+        })
+        setTimeout(()=>{
+          this.getUserInfo()
+        }, 1000)
+      }
+    })
+  }
+
   render() {
-    const { isLogin } = this.state
+    const { isLogin, hasStar } = this.state
     const { userInfo } = this.props
+
+    let repo_counts = userInfo ? Number(userInfo.public_repos) : 0
+    if (userInfo && userInfo.owned_private_repos > 0) {
+      repo_counts +=  Number(userInfo.owned_private_repos)
+    }
+
     return (
       <View>
         {
@@ -125,14 +176,17 @@ class Index extends Component {
               <Image className='account_bg' src={require('../../assets/images/account_bg.png')}/>
               <View className='user_info'>
                 <AtAvatar className='avatar' circle image={userInfo.avatar_url}/>
-                <Text className='username'>{userInfo.name}</Text>
+                {
+                  userInfo.name.length > 0 &&
+                  <Text className='username'>{userInfo.name}</Text>
+                }
                 <View className='login_name'>@{userInfo.login}</View>
               </View>
               <View className='info_view'>
                 {userInfo.bio.length > 0 && <View className='bio'>{userInfo.bio}</View>}
                 <View className='item_view'>
                   <View className='item' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.REPOS)}>
-                    <View className='title'>{userInfo.public_repos}+{userInfo.owned_private_repos}</View>
+                    <View className='title'>{userInfo ? repo_counts : ''}</View>
                     <View className='desc'>Repos</View>
                   </View>
                   <View className='line'/>
@@ -147,6 +201,16 @@ class Index extends Component {
                   </View>
                 </View>
               </View>
+              {
+                !hasStar && (
+                  <View className='list_view'>
+                    <View className='list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.STAR)}>
+                      <View className='list_title'>Star Gitter ❤</View>
+                      <AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />
+                    </View>
+                  </View>
+                )
+              }
               <View className='list_view'>
                 <View className='list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.STARRED_REPOS)}>
                   <View className='list_title'>Starred Repos</View>
@@ -176,6 +240,10 @@ class Index extends Component {
                 </View>
               </View>
               <View className='list_view'>
+                <View className='list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.FEEDBACK)}>
+                  <View className='list_title'>Feedback</View>
+                  <AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />
+                </View>
                 <View className='list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.ABOUT)}>
                   <View className='list_title'>About</View>
                   <AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />
@@ -187,7 +255,7 @@ class Index extends Component {
             <View className='content'>
               <Image mode='aspectFit'
                      className='logo'
-                     src={require('../../assets/images/logo.png')} />
+                     src={require('../../assets/images/octocat.png')} />
               <View className='login_button'
                     onClick={this.login.bind(this)}>
                 Login

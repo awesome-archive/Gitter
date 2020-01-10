@@ -1,5 +1,5 @@
 import Taro, { Component } from '@tarojs/taro'
-import { View, Text, Button, Navigator } from '@tarojs/components'
+import { View, Text, Button, Navigator, Ad } from '@tarojs/components'
 import { GLOBAL_CONFIG } from '../../constants/globalConfig'
 import { AtIcon } from 'taro-ui'
 import { base64_decode } from '../../utils/base64'
@@ -7,10 +7,9 @@ import { hasLogin } from '../../utils/common'
 import { HTTP_STATUS } from '../../constants/status'
 import { NAVIGATE_TYPE } from '../../constants/navigateType'
 import Markdown from '../../components/repo/markdown'
-import api from '../../service/api'
+import Painter from '../../components/repo/painter'
 
-import Towxml from '../../components/towxml/main'
-const render = new Towxml()
+import api from '../../service/api'
 
 import './repo.less'
 
@@ -30,9 +29,12 @@ class Repo extends Component {
       repo: null,
       readme: null,
       hasStar: false,
+      hasWatching: false,
       isShare: false,
+      loadAd: true,
       baseUrl: null,
-      md: null
+      md: null,
+      posterData: null
     }
   }
 
@@ -42,7 +44,7 @@ class Repo extends Component {
   componentWillMount() {
     let params = this.$router.params
     this.setState({
-      url: encodeURI(params.url),
+      url: decodeURI(params.url),
       isShare: params.share
     })
   }
@@ -51,7 +53,6 @@ class Repo extends Component {
     Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
     this.getRepo()
   }
-
 
   onPullDownRefresh() {
     this.getRepo()
@@ -75,11 +76,10 @@ class Repo extends Component {
   }
 
   onShareAppMessage(obj) {
-    const { repo } = this.state
-    const { url } = this.state
-    let path = '/pages/repo/repo?url=' + decodeURI(url) + '&share=true'
+    const { repo, url } = this.state
+    let path = '/pages/repo/repo?url=' + encodeURI(url) + '&share=true'
     return {
-      title: repo.name + ' -- ' +repo.description || 'no description',
+      title: `「${repo.name}」★${repo.stargazers_count} - 来自GitHub的开源项目，快来看看吧~~`,
       path: path
     }
   }
@@ -95,6 +95,7 @@ class Repo extends Component {
         }, ()=>{
           that.getReadme()
           that.checkStarring()
+          // that.checkWatching()
         })
       } else {
         Taro.showToast({
@@ -140,27 +141,43 @@ class Repo extends Component {
     }
   }
 
+  checkWatching() {
+    if (hasLogin()) {
+      const { repo } = this.state
+      let that = this
+      let url =  '/repos/' + repo.full_name + '/subscription'
+      api.get(url).then((res)=>{
+        that.setState({
+          hasWatching: res.statusCode === 200
+        })
+      })
+    }
+  }
+
   handleStar() {
+    Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
     const { hasStar, repo } = this.state
     let url = '/user/starred/' + repo.full_name
     let that = this
     if (hasStar) {
       api.delete(url).then((res)=>{
-        repo.stargazers_count -= 1
         if (res.statusCode === 204) {
-          that.setState({
-            hasStar: false,
-            repo: repo
+          that.getRepo()
+        } else {
+          Taro.showToast({
+            title: res.data.message,
+            icon: 'none'
           })
         }
       })
     } else {
       api.put(url).then((res)=>{
         if (res.statusCode === 204) {
-          repo.stargazers_count += 1
-          that.setState({
-            hasStar: true,
-            repo: repo
+          that.getRepo()
+        } else {
+          Taro.showToast({
+            title: res.data.message,
+            icon: 'none'
           })
         }
       })
@@ -170,12 +187,13 @@ class Repo extends Component {
   handleFork() {
     Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
     const { repo } = this.state
-    let that = this
     let url = '/repos/' + repo.full_name + '/forks'
     api.post(url).then((res)=>{
-      if (res.statusCode === HTTP_STATUS.SUCCESS) {
+      Taro.hideLoading()
+      if (res.statusCode === HTTP_STATUS.ACCEPTED) {
         Taro.showToast({
-          title: 'Success'
+          title: 'Success!',
+          icon: 'success'
         })
       } else {
         Taro.showToast({
@@ -183,7 +201,6 @@ class Repo extends Component {
           icon: 'none'
         })
       }
-      Taro.hideLoading()
     })
   }
 
@@ -216,6 +233,13 @@ class Repo extends Component {
         })
       }
         break
+      case NAVIGATE_TYPE.REPO_EVENTS_LIST: {
+        let url = '/pages/repo/repoEvents?url=/repos/' + repo.full_name + '/events'
+        Taro.navigateTo({
+          url: url
+        })
+      }
+        break
       default: {
 
       }
@@ -228,8 +252,213 @@ class Repo extends Component {
     })
   }
 
+  onClickedActionButton(index) {
+    console.log(index)
+    const { repo } = this.state
+    if (index === 1) {
+      this.loadWXACode()
+    } else if (index === 2) {
+      const url = `https://github.com/${repo.full_name}`
+      Taro.setClipboardData({
+        data: url
+      })
+    }
+  }
+
+  loadWXACode() {
+    const { repo, url } = this.state
+    const path = '/pages/repo/repo?url=' + encodeURI(url) + '&share=true'
+    let that = this
+    Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
+    wx.cloud.callFunction({
+      // 要调用的云函数名称
+      name: 'wxacode',
+      // 传递给云函数的event参数
+      data: {
+        path: path,
+        name: `${repo.owner.login}_${repo.name}`
+      }
+    }).then(res => {
+      console.log('wxacode', res)
+      if (res.result && res.result.length > 0) {
+        that.generatePoster(res.result[0].tempFileURL)
+      } else {
+        Taro.hideLoading()
+      }
+    }).catch(err => {
+      Taro.hideLoading()
+    })
+  }
+
+  generatePoster(imgUrl) {
+    const { repo } = this.state
+    const data = {
+      background: '#f7f7f7',
+      width: '750rpx',
+      height: '1100rpx',
+      borderRadius: '0rpx',
+      views: [
+        {
+          type: 'rect',
+          css: {
+            left: '50rpx',
+            width: '650rpx',
+            top: '50rpx',
+            color: '#ffffff',
+            height: '900rpx',
+            borderRadius: '20rpx',
+            shadow: '10rpx 10rpx 5rpx #888888',
+          }
+        },
+        {
+          type: 'rect',
+          css: {
+            left: '50rpx',
+            width: '650rpx',
+            height: '640rpx',
+            top: '50rpx',
+            color: '#2d8cf0',
+            borderRadius: '20rpx',
+          }
+        },
+        {
+          type: 'rect',
+          css: {
+            left: '50rpx',
+            width: '650rpx',
+            height: '50rpx',
+            top: '640rpx',
+            color: '#2d8cf0',
+          }
+        },
+        {
+          type: 'text',
+          text: `「${repo.name}」`,
+          css: {
+            top: '80rpx',
+            left: '375rpx',
+            align: 'center',
+            fontSize: '38rpx',
+            color: '#ffffff',
+            width: '550rpx',
+            maxLines: '1',
+          }
+        },
+        {
+          type: 'text',
+          text: `Stars：★${repo.stargazers_count}  ${repo.stargazers_count > 99 ? '🔥' : ''}`,
+          css: {
+            top: '150rpx',
+            left: '80rpx',
+            width: '550rpx',
+            maxLines: '1',
+            fontSize: '28rpx',
+            color: '#ffffff'
+          }
+        },
+        {
+          type: 'text',
+          text: `作者：${repo.owner.login}`,
+          css: {
+            top: '250rpx',
+            left: '80rpx',
+            width: '550rpx',
+            maxLines: '1',
+            fontSize: '28rpx',
+            color: '#ffffff'
+          }
+        },
+        {
+          type: 'text',
+          text: `GitHub：https://github.com/${repo.full_name}`,
+          css: {
+            top: '350rpx',
+            left: '80rpx',
+            width: '550rpx',
+            fontSize: '28rpx',
+            color: '#ffffff',
+            lineHeight: '36rpx',
+            maxLines: '2',
+          }
+        },
+        {
+          type: 'text',
+          text: `项目描述：${repo.description || '暂无描述'}`,
+          css: {
+            top: '450rpx',
+            left: '80rpx',
+            width: '550rpx',
+            fontSize: '28rpx',
+            maxLines: '4',
+            color: '#ffffff',
+            lineHeight: '36rpx'
+          }
+        },
+        {
+          type: 'image',
+          url: `${imgUrl}`,
+          css: {
+            bottom: '180rpx',
+            left: '120rpx',
+            width: '200rpx',
+            height: '200rpx',
+          },
+        },
+        {
+          type: 'text',
+          text: '长按识别，查看项目详情',
+          css: {
+            bottom: '290rpx',
+            left: '350rpx',
+            fontSize: '28rpx',
+            color: '#666666'
+          }
+        },
+        {
+          type: 'text',
+          text: '分享自「Gitter」',
+          css: {
+            bottom: '230rpx',
+            left: '350rpx',
+            fontSize: '28rpx',
+            color: '#666666',
+          }
+        },
+        {
+          type: 'text',
+          text: '开源的世界，有你才更精彩',
+          css: {
+            bottom: '60rpx',
+            left: '375rpx',
+            align: 'center',
+            fontSize: '28rpx',
+            color: '#666666',
+          }
+        }
+      ],
+    }
+    this.setState({
+      posterData: data
+    })
+  }
+
+  onPainterFinished() {
+    console.log('onPainterFinished')
+    this.setState({
+      posterData: null
+    })
+  }
+
+  loadError(event) {
+    this.setState({
+      loadAd: false
+    })
+    console.log(event.detail)
+  }
+
   render () {
-    const { repo, hasStar, isShare, md, baseUrl } = this.state
+    const { repo, hasStar, isShare, md, baseUrl, loadAd, posterData } = this.state
+    console.log('posterData', posterData)
     if (!repo) return <View />
     return (
       <View className='content'>
@@ -239,7 +468,7 @@ class Repo extends Component {
             repo.fork &&
             <View className='fork'>
               <AtIcon prefixClass='ion' value='ios-git-network' size='15' color='#fff' />
-              <Navigator url={'/pages/repo/repo?url=' + decodeURI(repo.parent.url)}>
+              <Navigator url={'/pages/repo/repo?url=' + encodeURI(repo.parent.url)}>
                 <Text className='fork_title'>
                   {repo.parent.full_name}
                 </Text>
@@ -252,13 +481,13 @@ class Repo extends Component {
           <View className='repo_number_item_view'>
             <View className='repo_number_item'>
               <AtIcon prefixClass='ion' value='ios-eye' size='25' color='#333' />
-              <Text className='repo_number_title'>{repo.watchers_count}</Text>
+              <Text className='repo_number_title'>{repo.subscribers_count}</Text>
             </View>
             <View className='repo_number_item' onClick={this.handleStar.bind(this)}>
               <AtIcon prefixClass='ion'
                       value={hasStar ? 'ios-star' : 'ios-star-outline'}
                       size='25'
-                      color={hasStar ? '#ff4949' : '#333'} />
+                      color={hasStar ? '#333' : '#333'} />
               <Text className='repo_number_title'>{repo.stargazers_count}</Text>
             </View>
             <View className='repo_number_item' onClick={this.handleFork.bind(this)}>
@@ -266,7 +495,30 @@ class Repo extends Component {
               <Text className='repo_number_title'>{repo.forks_count}</Text>
             </View>
           </View>
-          <Button className='share_button' openType='share'>Share</Button>
+          <View className='share_item_view'>
+            <View className='repo_share_item'>
+              <Button className='action_button'
+                      openType='share'
+                      onClick={this.onClickedActionButton.bind(this, 0)}>
+                <AtIcon prefixClass='ion' value='ios-share-alt' size='25' color='#333' />
+                <Text className='action_button_title'>share</Text>
+              </Button>
+            </View>
+            <View className='repo_share_item'>
+              <Button className='action_button'
+                      onClick={this.onClickedActionButton.bind(this, 1)}>
+                <AtIcon prefixClass='ion' value='md-images' size='22' color='#333' />
+                <Text className='action_button_title'>save</Text>
+              </Button>
+            </View>
+            <View className='repo_share_item'>
+              <Button className='action_button'
+                      onClick={this.onClickedActionButton.bind(this, 2)}>
+                <AtIcon prefixClass='ion' value='ios-link' size='23' color='#333' />
+                <Text className='action_button_title'>copy</Text>
+              </Button>
+            </View>
+          </View>
         </View>
         <View className='repo_info_list_view'>
           <View className='repo_info_list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.USER)}>
@@ -306,10 +558,10 @@ class Repo extends Component {
               <AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />
             </View>
           </View>
-          {/*<View className='repo_info_list'>*/}
-            {/*<View className='list_title'>Pull Requests</View>*/}
-            {/*<AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />*/}
-          {/*</View>*/}
+          <View className='repo_info_list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.REPO_EVENTS_LIST)}>
+            <View className='list_title'>Events</View>
+            <AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />
+          </View>
           <View className='repo_info_list' onClick={this.handleNavigate.bind(this, NAVIGATE_TYPE.REPO_CONTRIBUTORS_LIST)}>
             <View className='list_title'>Contributors</View>
             <AtIcon prefixClass='ion' value='ios-arrow-forward' size='18' color='#7f7f7f' />
@@ -325,6 +577,13 @@ class Repo extends Component {
           </View>
         }
         {
+          (md && loadAd) &&
+          <View className='ad'>
+            <Text className='support'>Support Gitter ❤</Text>
+            <Ad unitId='adunit-04a1d10f49572d65' onError={this.loadError.bind(this)} />
+          </View>
+        }
+        {
           isShare &&
           <View className='home_view' onClick={this.onClickedHome.bind(this)}>
             <AtIcon prefixClass='ion'
@@ -332,6 +591,9 @@ class Repo extends Component {
                     size='30'
                     color='#fff' />
           </View>
+        }
+        {
+          posterData && <Painter style='position:fixed;top:-9999rpx' data={posterData} save onPainterFinished={this.onPainterFinished}/>
         }
       </View>
     )

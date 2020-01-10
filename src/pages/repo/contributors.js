@@ -1,7 +1,10 @@
 import Taro, { Component } from '@tarojs/taro'
 import { View } from '@tarojs/components'
 import { GLOBAL_CONFIG } from '../../constants/globalConfig'
+import { REFRESH_STATUS } from '../../constants/status'
 import FollowItem from '../../components/account/followItem'
+import Empty from '../../components/index/empty'
+import LoadMore from '../../components/common/loadMore'
 
 import api from '../../service/api'
 
@@ -18,7 +21,8 @@ class Contributors extends Component {
     this.state = {
       url: null,
       page: 1,
-      dataList: []
+      dataList: [],
+      refresh_status: REFRESH_STATUS.NORMAL
     }
   }
 
@@ -54,19 +58,27 @@ class Contributors extends Component {
   }
 
   onReachBottom() {
-    let that = this
-    Taro.showLoading({title: GLOBAL_CONFIG.LOADING_TEXT})
-    const { page } = this.state
-    this.setState({
-      page: page + 1
-    }, ()=>{
-      that.getContributors()
-    })
+    const { page, refresh_status } = this.state
+    if (refresh_status !== REFRESH_STATUS.NO_MORE_DATA) {
+      let that = this
+      this.setState({
+        page: page + 1
+      }, ()=>{
+        that.getContributors()
+      })
+    }
   }
 
   getContributors() {
     let that = this
     const { url, page, dataList } = this.state
+
+    if (page !== 1) {
+      that.setState({
+        refresh_status: REFRESH_STATUS.REFRESHING
+      })
+    }
+
     let params = {
       page: page,
       per_page: GLOBAL_CONFIG.PER_PAGE
@@ -81,6 +93,10 @@ class Contributors extends Component {
           dataList: dataList.concat(res.data)
         })
       }
+      let status = res.data.length < GLOBAL_CONFIG.PER_PAGE ? REFRESH_STATUS.NO_MORE_DATA : REFRESH_STATUS.NORMAL
+      that.setState({
+        refresh_status: status
+      })
       Taro.stopPullDownRefresh()
       Taro.hideLoading()
     })
@@ -93,18 +109,21 @@ class Contributors extends Component {
   }
 
   render () {
-    const { dataList } = this.state
+    const { dataList, refresh_status } = this.state
     return (
       <View className='content'>
         {
-          dataList.map((item, index) => {
-            return (
-              <View key={index} onClick={this.handleClickedItem.bind(this, item)}>
-                <FollowItem item={item} />
-              </View>
-            )
-          })
+          dataList.length > 0 ? (
+            dataList.map((item, index)=>{
+              return (
+                <View key={index} onClick={this.handleClickedItem.bind(this, item)}>
+                  <FollowItem item={item} />
+                </View>
+              )
+            })
+          ) : <Empty />
         }
+        <LoadMore status={refresh_status} />
       </View>
     )
   }
